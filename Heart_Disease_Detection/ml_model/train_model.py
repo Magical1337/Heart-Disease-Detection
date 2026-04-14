@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import sys
 from pathlib import Path
-from typing import Dict, Tuple
+from typing import Dict, Tuple, List
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
@@ -19,7 +19,12 @@ from sklearn.pipeline import Pipeline
 from sklearn.tree import DecisionTreeClassifier
 
 from rule_based_system.rules import evaluate_dataframe
-from utils.data_processing import build_preprocessor, create_clean_dataset, split_features_target
+from utils.data_processing import (
+    build_preprocessor,
+    create_clean_dataset,
+    select_features_by_correlation,
+    split_features_target,
+)
 
 MODEL_PATH = PROJECT_ROOT / "ml_model" / "heart_disease_decision_tree.joblib"
 METRICS_PATH = PROJECT_ROOT / "reports" / "metrics.json"
@@ -28,22 +33,25 @@ IMPORTANCE_PATH = PROJECT_ROOT / "reports" / "figures" / "feature_importance.png
 VALIDATION_PATH = PROJECT_ROOT / "reports" / "validation_predictions.csv"
 
 
-def get_train_test_data() -> Tuple[pd.DataFrame, pd.DataFrame, pd.Series, pd.Series]:
+def get_train_test_data() -> Tuple[pd.DataFrame, pd.DataFrame, pd.Series, pd.Series, List[str]]:
     cleaned_df = create_clean_dataset()
-    features, target = split_features_target(cleaned_df)
-    return train_test_split(
+    # Apply correlation-based feature selection
+    selected_features = select_features_by_correlation(cleaned_df, threshold=0.1)
+    features, target = split_features_target(cleaned_df, selected_features)
+    x_train, x_test, y_train, y_test = train_test_split(
         features,
         target,
         test_size=0.2,
         random_state=42,
         stratify=target,
     )
+    return x_train, x_test, y_train, y_test, selected_features
 
 
-def build_model_pipeline() -> Pipeline:
+def build_model_pipeline(selected_features: List[str] = None) -> Pipeline:
     return Pipeline(
         steps=[
-            ("preprocessor", build_preprocessor()),
+            ("preprocessor", build_preprocessor(selected_features)),
             ("classifier", DecisionTreeClassifier(random_state=42)),
         ]
     )
@@ -119,7 +127,7 @@ Best hyperparameters: `{best_params}`
 
 
 def train_and_evaluate() -> Dict[str, object]:
-    x_train, x_test, y_train, y_test = get_train_test_data()
+    x_train, x_test, y_train, y_test, selected_features = get_train_test_data()
 
     param_grid = {
         "classifier__criterion": ["gini", "entropy"],
@@ -129,7 +137,7 @@ def train_and_evaluate() -> Dict[str, object]:
     }
 
     search = GridSearchCV(
-        estimator=build_model_pipeline(),
+        estimator=build_model_pipeline(selected_features),
         param_grid=param_grid,
         cv=5,
         n_jobs=-1,
