@@ -87,11 +87,25 @@ def get_feature_lists() -> Dict[str, List[str]]:
     }
 
 
-def split_features_target(df: pd.DataFrame) -> Tuple[pd.DataFrame, pd.Series]:
-    return df.drop(columns=[TARGET_COLUMN]), df[TARGET_COLUMN]
+def select_features_by_correlation(df: pd.DataFrame, threshold: float = 0.1) -> List[str]:
+    """Select features that have a correlation with the target above a certain threshold."""
+    correlations = df.corr(numeric_only=True)[TARGET_COLUMN].abs().sort_values(ascending=False)
+    # Drop target itself and select features above threshold
+    selected_features = correlations[correlations >= threshold].index.drop(TARGET_COLUMN).tolist()
+    return selected_features
 
 
-def build_preprocessor() -> ColumnTransformer:
+def split_features_target(df: pd.DataFrame, selected_features: List[str] = None) -> Tuple[pd.DataFrame, pd.Series]:
+    if selected_features is None:
+        return df.drop(columns=[TARGET_COLUMN]), df[TARGET_COLUMN]
+    return df[selected_features], df[TARGET_COLUMN]
+
+
+def build_preprocessor(selected_features: List[str] = None) -> ColumnTransformer:
+    # Use selected features or fall back to all if none provided
+    target_numerical = [f for f in NUMERICAL_FEATURES if selected_features is None or f in selected_features]
+    target_categorical = [f for f in CATEGORICAL_FEATURES if selected_features is None or f in selected_features]
+
     numeric_pipeline = Pipeline(
         steps=[
             ("imputer", SimpleImputer(strategy="median")),
@@ -106,8 +120,8 @@ def build_preprocessor() -> ColumnTransformer:
     )
     return ColumnTransformer(
         transformers=[
-            ("numerical", numeric_pipeline, NUMERICAL_FEATURES),
-            ("categorical", categorical_pipeline, CATEGORICAL_FEATURES),
+            ("numerical", numeric_pipeline, target_numerical),
+            ("categorical", categorical_pipeline, target_categorical),
         ]
     )
 
